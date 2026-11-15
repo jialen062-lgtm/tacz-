@@ -26,16 +26,26 @@ jobs:
       - name: Extract r50 source ZIP
         run: |
           mkdir source
-          unzip -q "TACZYIGF-r50-player-preview-update.zip" -d source
+          ZIP_FILE="TACZYIGF-r50-graphics-config.zip"
+
+          if [ ! -f "$ZIP_FILE" ]; then
+            echo "找不到源码 ZIP：$ZIP_FILE"
+            ls -la
+            exit 1
+          fi
+
+          unzip -q "$ZIP_FILE" -d source
           find source -name build.gradle -print
 
       - name: Locate Gradle project
         run: |
           BUILD_FILE=$(find source -name build.gradle -print -quit)
+
           if [ -z "$BUILD_FILE" ]; then
             echo "找不到 build.gradle"
             exit 1
           fi
+
           echo "PROJECT_DIR=$(dirname "$BUILD_FILE")" >> "$GITHUB_ENV"
 
       - name: Set up Gradle
@@ -49,7 +59,7 @@ jobs:
       - name: Upload mod JAR
         uses: actions/upload-artifact@v4
         with:
-          name: TACZYIGF-r50
+          name: TACZYIGF-r50-graphics-config
           path: source/**/build/libs/*.jar
           if-no-files-found: error
           retention-days: 14
