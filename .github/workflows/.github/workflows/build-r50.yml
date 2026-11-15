@@ -3,8 +3,6 @@ name: Build TACZYIGF r50 Final Fix
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ main, master ]
 
 permissions:
   contents: read
@@ -23,13 +21,13 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Extract r50 source ZIP
+      - name: Extract source ZIP
         run: |
           mkdir source
           ZIP_FILE="TACZYIGF-r50-final-preview-fix.zip"
 
           if [ ! -f "$ZIP_FILE" ]; then
-            echo "找不到源码 ZIP：$ZIP_FILE"
+            echo "找不到源码 ZIP"
             ls -la
             exit 1
           fi
@@ -55,10 +53,9 @@ jobs:
       - name: Build mod
         run: gradle --no-daemon -p "$PROJECT_DIR" clean build
 
-      - name: Upload mod JAR
+      - name: Upload JAR
         uses: actions/upload-artifact@v4
         with:
           name: TACZYIGF-r50-final-fix
           path: source/**/build/libs/*.jar
           if-no-files-found: error
-          retention-days: 14
