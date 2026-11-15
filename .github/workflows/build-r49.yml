@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. 下载仓库源码
+      # 1. 获取仓库文件
       - name: Checkout source
         uses: actions/checkout@v4
 
@@ -25,14 +25,14 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      # 3. 检查并寻找源码 ZIP
+      # 3. 自动寻找源码 ZIP
       - name: Find source ZIP
         run: |
           echo "当前仓库文件："
           ls -la
 
           ZIP_FILE=$(find . -maxdepth 1 -type f \
-            -iname 'TACZYIGF-r49-source*.zip' | head -n 1)
+            -iname 'TACZYIGF-r49*.zip' | head -n 1)
 
           if [ -z "$ZIP_FILE" ]; then
             echo "错误：没有找到 TACZYIGF r49 源码 ZIP"
@@ -47,19 +47,19 @@ jobs:
         run: |
           mkdir -p source
           unzip -q "$ZIP_FILE" -d source
-          echo "源码解压完成"
-          find source -maxdepth 4 -type f \
-            \( -name build.gradle -o -name settings.gradle \)
 
-      # 5. 自动定位 Gradle 工程
+          echo "源码解压完成"
+          echo "源码目录结构："
+          find source -maxdepth 4 -type f | head -n 100
+
+      # 5. 自动寻找 Gradle 工程
       - name: Locate Gradle project
         run: |
-          BUILD_FILE=$(find source -name build.gradle \
-            -type f -print -quit)
+          BUILD_FILE=$(find source -type f \
+            -name build.gradle -print -quit)
 
           if [ -z "$BUILD_FILE" ]; then
             echo "错误：找不到 build.gradle"
-            find source -maxdepth 4 -type f
             exit 1
           fi
 
@@ -80,7 +80,7 @@ jobs:
         with:
           gradle-version: '8.8'
 
-      # 7. 检查 Java 和 Gradle 工程
+      # 7. 检查编译环境
       - name: Check build environment
         run: |
           java -version
@@ -94,7 +94,7 @@ jobs:
             -p "$PROJECT_DIR" \
             clean build
 
-      # 9. 上传生成的 JAR
+      # 9. 上传 JAR 文件
       - name: Upload mod JAR
         uses: actions/upload-artifact@v4
         with:
