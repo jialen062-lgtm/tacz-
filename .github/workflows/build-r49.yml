@@ -23,24 +23,33 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Extract source ZIP
+        run: |
+          mkdir source
+          unzip -q "TACZYIGF-r49-source(1).zip" -d source
+          find source -name build.gradle -print
+
+      - name: Locate Gradle project
+        run: |
+          BUILD_FILE=$(find source -name build.gradle -print -quit)
+          if [ -z "$BUILD_FILE" ]; then
+            echo "找不到 build.gradle"
+            exit 1
+          fi
+          echo "PROJECT_DIR=$(dirname "$BUILD_FILE")" >> "$GITHUB_ENV"
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.8'
 
-      - name: Check project files
-        run: |
-          ls -la
-          test -f build.gradle
-          test -f settings.gradle
-
       - name: Build mod
-        run: gradle --no-daemon clean build
+        run: gradle --no-daemon -p "$PROJECT_DIR" clean build
 
       - name: Upload mod JAR
         uses: actions/upload-artifact@v4
         with:
           name: TACZYIGF-r49
-          path: build/libs/*.jar
+          path: source/**/build/libs/*.jar
           if-no-files-found: error
           retention-days: 14
