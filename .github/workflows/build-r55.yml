@@ -1,13 +1,13 @@
 
-name: Build TACZYIGF r54 Category Preview Fix
+name: Build TACZYIGF r55 Preview Orientation Fix
 
 on:
   workflow_dispatch:
   push:
     branches: [ main, master ]
     paths:
-      - 'TACZYIGF-r54-category-preview-source.zip'
-      - '.github/workflows/build-r54.yml'
+      - 'TACZYIGF-r55-preview-orientation-fix-source.zip'
+      - '.github/workflows/build-r55.yml'
 
 permissions:
   contents: read
@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout source archive
+      - name: Checkout source
         uses: actions/checkout@v4
 
       - name: Set up Java 17
@@ -26,16 +26,17 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Extract r54 source
+      - name: Extract r55 source
         shell: bash
         run: |
           set -euo pipefail
-          ZIP_FILE="TACZYIGF-r54-category-preview-source.zip"
-          test -f "$ZIP_FILE" || {
-            echo "找不到源码 ZIP"
-            ls -la
+          ZIP_FILE="TACZYIGF-r55-preview-orientation-fix-source.zip"
+
+          if [ ! -f "$ZIP_FILE" ]; then
+            echo "找不到源码文件：$ZIP_FILE"
             exit 1
-          }
+          fi
+
           mkdir -p source
           unzip -q "$ZIP_FILE" -d source
 
@@ -44,10 +45,12 @@ jobs:
         run: |
           set -euo pipefail
           BUILD_FILE="$(find source -name build.gradle -print -quit)"
-          test -n "$BUILD_FILE" || {
+
+          if [ -z "$BUILD_FILE" ]; then
             echo "找不到 build.gradle"
             exit 1
-          }
+          fi
+
           echo "PROJECT_DIR=$(dirname "$BUILD_FILE")" >> "$GITHUB_ENV"
 
       - name: Set up Gradle
@@ -61,7 +64,7 @@ jobs:
       - name: Upload JAR
         uses: actions/upload-artifact@v4
         with:
-          name: TACZYIGF-r54-category-preview
+          name: TACZYIGF-r55-preview-orientation-fix
           path: source/**/build/libs/*.jar
           if-no-files-found: error
           retention-days: 14
