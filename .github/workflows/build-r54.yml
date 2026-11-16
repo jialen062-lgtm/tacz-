@@ -1,13 +1,13 @@
 
-name: Build TACZYIGF r53 Video Modding Preview
+name: Build TACZYIGF r54 Category Preview Fix
 
 on:
   workflow_dispatch:
   push:
     branches: [ main, master ]
     paths:
-      - 'TACZYIGF-r53-video-mod-preview-source.zip'
-      - '.github/workflows/build-r53.yml'
+      - 'TACZYIGF-r54-category-preview-source.zip'
+      - '.github/workflows/build-r54.yml'
 
 permissions:
   contents: read
@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout source
+      - name: Checkout source archive
         uses: actions/checkout@v4
 
       - name: Set up Java 17
@@ -26,12 +26,13 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Extract r53 source
+      - name: Extract r54 source
         shell: bash
         run: |
-          ZIP_FILE="TACZYIGF-r53-video-mod-preview-source.zip"
+          set -euo pipefail
+          ZIP_FILE="TACZYIGF-r54-category-preview-source.zip"
           test -f "$ZIP_FILE" || {
-            echo "找不到源码 ZIP：$ZIP_FILE"
+            echo "找不到源码 ZIP"
             ls -la
             exit 1
           }
@@ -41,7 +42,8 @@ jobs:
       - name: Locate Gradle project
         shell: bash
         run: |
-          BUILD_FILE=$(find source -name build.gradle -print -quit)
+          set -euo pipefail
+          BUILD_FILE="$(find source -name build.gradle -print -quit)"
           test -n "$BUILD_FILE" || {
             echo "找不到 build.gradle"
             exit 1
@@ -59,6 +61,7 @@ jobs:
       - name: Upload JAR
         uses: actions/upload-artifact@v4
         with:
-          name: TACZYIGF-r53-video-mod-preview
+          name: TACZYIGF-r54-category-preview
           path: source/**/build/libs/*.jar
           if-no-files-found: error
+          retention-days: 14
