@@ -73,4 +73,3 @@ jobs:
             TACZYIGF-r60-source.zip
           if-no-files-found: error
           retention-days: 30
-1
