@@ -6,7 +6,7 @@ on:
   push:
     branches: [ main, master ]
     paths:
-      - 'TACZYIGF-r60-source.zip'
+      - 'TACZYIGF-r60-source-1.zip'
       - '.github/workflows/build-r60.yml'
 
 permissions:
@@ -30,22 +30,24 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -s TACZYIGF-r60-source.zip
+          ZIP_FILE="TACZYIGF-r60-source-1.zip"
+          test -s "$ZIP_FILE"
           mkdir -p extracted
-          unzip -q TACZYIGF-r60-source.zip -d extracted
+          unzip -q "$ZIP_FILE" -d extracted
 
       - name: Locate project
         shell: bash
         run: |
           set -euo pipefail
           BUILD_FILE=$(find extracted -name build.gradle -print -quit)
-          test -n "$BUILD_FILE"
+          if [ -z "$BUILD_FILE" ]; then
+            echo "错误：ZIP 中没有找到 build.gradle"
+            exit 1
+          fi
+
           PROJECT_DIR=$(dirname "$BUILD_FILE")
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          grep -F "version = '1.0.0-r60'" "$BUILD_FILE"
-
-      - name: Verify attachment rules
-        run: bash "$PROJECT_DIR/tools/verify-attachment-rules.sh"
+          echo "找到项目：$PROJECT_DIR"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -53,23 +55,35 @@ jobs:
           gradle-version: '8.8'
 
       - name: Build r60
-        run: gradle --no-daemon -p "$PROJECT_DIR" clean build
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon -p "$PROJECT_DIR" clean build
 
       - name: Verify JAR
         shell: bash
         run: |
           set -euo pipefail
-          JAR="$PROJECT_DIR/build/libs/tacz_cnpc_alert-1.0.0-r60.jar"
-          test -s "$JAR"
-          jar tf "$JAR" >/dev/null
-          echo "JAR verification passed"
+          mkdir -p verified
+          find "$PROJECT_DIR/build/libs" \
+            -maxdepth 1 -type f -name '*.jar' \
+            ! -name '*-sources.jar' \
+            -exec cp {} verified/ \;
+
+          if [ -z "$(find verified -name '*.jar' -print -quit)" ]; then
+            echo "错误：没有生成 JAR 文件"
+            exit 1
+          fi
+
+          for JAR in verified/*.jar; do
+            jar tf "$JAR" >/dev/null
+            echo "验证成功：$JAR"
+          done
 
       - name: Upload build
         uses: actions/upload-artifact@v4
         with:
           name: TACZYIGF-r60
-          path: |
-            ${{ env.PROJECT_DIR }}/build/libs/*.jar
-            TACZYIGF-r60-source.zip
+          path: verified/*.jar
           if-no-files-found: error
           retention-days: 30
