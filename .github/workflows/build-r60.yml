@@ -1,13 +1,13 @@
 
-name: Build TACZYIGF r59
+name: Build TACZYIGF r60
 
 on:
   workflow_dispatch:
   push:
     branches: [ main, master ]
     paths:
-      - 'TACZYIGF-r59-preview-ui-fix-source.zip'
-      - '.github/workflows/build-r59.yml'
+      - 'TACZYIGF-r60-source.zip'
+      - '.github/workflows/build-r60.yml'
 
 permissions:
   contents: read
@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout source
         uses: actions/checkout@v4
 
       - name: Set up Java 17
@@ -27,17 +27,22 @@ jobs:
           java-version: '17'
 
       - name: Extract source
+        shell: bash
         run: |
           set -euo pipefail
-          mkdir -p source
-          unzip -q TACZYIGF-r59-preview-ui-fix-source.zip -d source
+          test -s TACZYIGF-r60-source.zip
+          mkdir -p extracted
+          unzip -q TACZYIGF-r60-source.zip -d extracted
 
       - name: Locate project
+        shell: bash
         run: |
-          BUILD_FILE=$(find source -name build.gradle -print -quit)
+          set -euo pipefail
+          BUILD_FILE=$(find extracted -name build.gradle -print -quit)
           test -n "$BUILD_FILE"
           PROJECT_DIR=$(dirname "$BUILD_FILE")
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          grep -F "version = '1.0.0-r60'" "$BUILD_FILE"
 
       - name: Verify attachment rules
         run: bash "$PROJECT_DIR/tools/verify-attachment-rules.sh"
@@ -47,14 +52,25 @@ jobs:
         with:
           gradle-version: '8.8'
 
-      - name: Build
+      - name: Build r60
         run: gradle --no-daemon -p "$PROJECT_DIR" clean build
 
-      - name: Upload artifacts
+      - name: Verify JAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          JAR="$PROJECT_DIR/build/libs/tacz_cnpc_alert-1.0.0-r60.jar"
+          test -s "$JAR"
+          jar tf "$JAR" >/dev/null
+          echo "JAR verification passed"
+
+      - name: Upload build
         uses: actions/upload-artifact@v4
         with:
-          name: TACZYIGF-r59
+          name: TACZYIGF-r60
           path: |
             ${{ env.PROJECT_DIR }}/build/libs/*.jar
-            TACZYIGF-r59-preview-ui-fix-source.zip
+            TACZYIGF-r60-source.zip
           if-no-files-found: error
+          retention-days: 30
+1
