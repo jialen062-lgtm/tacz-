@@ -3,11 +3,8 @@ name: Tactical Spectator Build
 
 on:
   push:
-    branches:
-      - main
-      - master
-    tags:
-      - 'v*'
+    branches: [main, master]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -16,7 +13,6 @@ permissions:
 
 jobs:
   build:
-    name: Build Forge Mod
     runs-on: ubuntu-latest
 
     steps:
@@ -32,23 +28,70 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Build mod
+      - name: Find and extract source ZIP
+        shell: bash
         run: |
-          if [ -f ./gradlew ]; then
-            chmod +x ./gradlew
-            ./gradlew build
-          elif [ -f ./build.gradle ] || [ -f ./build.gradle.kts ]; then
-            gradle build
+          set -e
+
+          mkdir -p extracted-source
+
+          mapfile -t ZIPS < <(
+            find . -maxdepth 3 -type f -iname '*.zip' \
+              -not -path './.git/*'
+          )
+
+          echo "ZIP files found:"
+          printf '%s\n' "${ZIPS[@]}"
+
+          if [ ${#ZIPS[@]} -eq 0 ]; then
+            echo "No ZIP found. Checking repository for Gradle project..."
+          elif [ ${#ZIPS[@]} -gt 1 ]; then
+            echo "Multiple ZIP files found:"
+            printf '%s\n' "${ZIPS[@]}"
+            exit 1
           else
-            echo "ERROR: Gradle build file not found in repository root."
+            unzip -q "${ZIPS[0]}" -d extracted-source
+          fi
+
+          echo "===== Repository and extracted files ====="
+          find . -maxdepth 5 -type f | head -200
+
+      - name: Locate and build project
+        shell: bash
+        run: |
+          set -e
+
+          BUILD_FILE=$(find . \
+            -type f \
+            \( -name build.gradle -o -name build.gradle.kts \) \
+            -not -path './.git/*' \
+            -not -path '*/build/*' \
+            | head -n 1)
+
+          if [ -z "$BUILD_FILE" ]; then
+            echo "ERROR: No Gradle project found."
+            echo "===== Repository contents ====="
+            find . -maxdepth 6 -type f
             exit 1
           fi
 
-      - name: Upload build artifacts
+          PROJECT_DIR=$(dirname "$BUILD_FILE")
+          echo "Gradle project found: $PROJECT_DIR"
+
+          cd "$PROJECT_DIR"
+
+          if [ -f gradlew ]; then
+            chmod +x gradlew
+            ./gradlew build
+          else
+            gradle build
+          fi
+
+      - name: Upload JAR
         uses: actions/upload-artifact@v4
         if: success()
         with:
           name: Tactical-Spectator-build
-          path: build/libs/*.jar
+          path: '**/build/libs/*.jar'
           if-no-files-found: error
           retention-days: 30
