@@ -3,14 +3,16 @@ name: Tactical Spectator Build
 
 on:
   push:
-    branches: [ main, master ]
-  tags:
-    - 'v*'
-  paths-ignore:
-    - '**.md'
-    - 'LICENSE'
-  workflow_dispatch:
+    branches:
+      - main
+      - master
+    tags:
+      - 'v*'
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -28,7 +30,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: '17'
           cache: gradle
 
       - name: Grant execute permission to Gradle
@@ -48,7 +50,6 @@ jobs:
         if: success()
         with:
           name: Tactical-Spectator-build
-          path: |
-            build/libs/*.jar
+          path: build/libs/*.jar
           if-no-files-found: error
           retention-days: 30
