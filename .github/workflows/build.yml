@@ -31,37 +31,54 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.8'
 
-      - name: Inspect repository
+      - name: Extract source ZIP
+        shell: bash
         run: |
-          echo "===== Repository files ====="
-          ls -la
-          echo "===== Gradle files ====="
-          find . -type f \
-            \( -name "build.gradle" -o -name "build.gradle.kts" \) \
-            -not -path "./.git/*"
+          set -e
+
+          ZIP_FILE="TACZYIGF-r50-final-preview-fix.zip"
+
+          if [ ! -f "$ZIP_FILE" ]; then
+            echo "ERROR: Source ZIP not found: $ZIP_FILE"
+            exit 1
+          fi
+
+          mkdir -p extracted-source
+          unzip -q "$ZIP_FILE" -d extracted-source
+
+          echo "===== Extracted source files ====="
+          find extracted-source -maxdepth 4 -type f | head -100
 
       - name: Locate and build Gradle project
         shell: bash
         run: |
           set -e
 
-          BUILD_FILE=$(find . \
-            -type f \
-            \( -name "build.gradle" -o -name "build.gradle.kts" \) \
-            -not -path "./.git/*" \
-            | head -n 1)
+          mapfile -t BUILD_FILES < <(
+            find extracted-source -type f \
+              \( -name "build.gradle" -o -name "build.gradle.kts" \) \
+              -not -path "*/.gradle/*" \
+              -not -path "*/build/*"
+          )
 
-          if [ -z "$BUILD_FILE" ]; then
-            echo "ERROR: No Gradle build file found."
-            echo "Please check repository source files."
+          if [ ${#BUILD_FILES[@]} -eq 0 ]; then
+            echo "ERROR: No Gradle build file found inside source ZIP."
+            echo "The ZIP may not contain the actual mod source project."
+            echo "===== ZIP CONTENTS ====="
+            find extracted-source -type f | head -200
             exit 1
           fi
 
-          PROJECT_DIR=$(dirname "$BUILD_FILE")
+          echo "Found Gradle files:"
+          printf '%s\n' "${BUILD_FILES[@]}"
 
-          echo "Found Gradle project: $PROJECT_DIR"
+          PROJECT_DIR="$(dirname "${BUILD_FILES[0]}")"
           cd "$PROJECT_DIR"
+
+          echo "Building project at: $PROJECT_DIR"
 
           if [ -f "./gradlew" ]; then
             chmod +x ./gradlew
@@ -75,6 +92,6 @@ jobs:
         if: success()
         with:
           name: Tactical-Spectator-build
-          path: '**/build/libs/*.jar'
+          path: extracted-source/**/build/libs/*.jar
           if-no-files-found: error
           retention-days: 30
