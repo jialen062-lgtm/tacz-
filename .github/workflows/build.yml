@@ -3,8 +3,9 @@ name: Tactical Spectator Build
 
 on:
   push:
-    branches: [main, master]
-    tags: ['v*']
+    branches:
+      - main
+      - master
   pull_request:
   workflow_dispatch:
 
@@ -13,10 +14,11 @@ permissions:
 
 jobs:
   build:
+    name: Build Tactical Spectator
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout source
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup Java 17
@@ -28,70 +30,90 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Find and extract source ZIP
+      - name: Extract Tactical Spectator source
         shell: bash
         run: |
           set -e
+
+          SOURCE_ZIP="TacticalSpectator_no_signal_tablet_stage.zip"
+
+          echo "Selected source:"
+          echo "$SOURCE_ZIP"
+
+          if [ ! -f "$SOURCE_ZIP" ]; then
+            echo "ERROR: Selected source ZIP does not exist."
+            echo "Expected: $SOURCE_ZIP"
+            exit 1
+          fi
 
           mkdir -p extracted-source
 
-          mapfile -t ZIPS < <(
-            find . -maxdepth 3 -type f -iname '*.zip' \
-              -not -path './.git/*'
-          )
+          unzip -q "$SOURCE_ZIP" -d extracted-source
 
-          echo "ZIP files found:"
-          printf '%s\n' "${ZIPS[@]}"
+          echo "===== Extracted source files ====="
+          find extracted-source -type f | head -200
 
-          if [ ${#ZIPS[@]} -eq 0 ]; then
-            echo "No ZIP found. Checking repository for Gradle project..."
-          elif [ ${#ZIPS[@]} -gt 1 ]; then
-            echo "Multiple ZIP files found:"
-            printf '%s\n' "${ZIPS[@]}"
-            exit 1
-          else
-            unzip -q "${ZIPS[0]}" -d extracted-source
-          fi
-
-          echo "===== Repository and extracted files ====="
-          find . -maxdepth 5 -type f | head -200
-
-      - name: Locate and build project
+      - name: Locate Gradle project
+        id: locate
         shell: bash
         run: |
           set -e
 
-          BUILD_FILE=$(find . \
+          BUILD_FILE=$(find extracted-source \
             -type f \
-            \( -name build.gradle -o -name build.gradle.kts \) \
-            -not -path './.git/*' \
-            -not -path '*/build/*' \
+            \( -name "build.gradle" -o -name "build.gradle.kts" \) \
+            -not -path "*/build/*" \
             | head -n 1)
 
           if [ -z "$BUILD_FILE" ]; then
-            echo "ERROR: No Gradle project found."
-            echo "===== Repository contents ====="
-            find . -maxdepth 6 -type f
+            echo "ERROR: Gradle build file not found in source ZIP."
+            echo "===== Extracted ZIP contents ====="
+            find extracted-source -type f
             exit 1
           fi
 
           PROJECT_DIR=$(dirname "$BUILD_FILE")
-          echo "Gradle project found: $PROJECT_DIR"
+
+          echo "Gradle file found:"
+          echo "$BUILD_FILE"
+
+          echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Build Forge Mod
+        shell: bash
+        run: |
+          set -e
+
+          PROJECT_DIR="${{ steps.locate.outputs.project_dir }}"
+
+          echo "Building project:"
+          echo "$PROJECT_DIR"
 
           cd "$PROJECT_DIR"
 
-          if [ -f gradlew ]; then
-            chmod +x gradlew
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
             ./gradlew build
           else
             gradle build
           fi
 
-      - name: Upload JAR
+      - name: Upload compiled JAR
         uses: actions/upload-artifact@v4
         if: success()
         with:
-          name: Tactical-Spectator-build
-          path: '**/build/libs/*.jar'
+          name: Tactical-Spectator-JAR
+          path: extracted-source/**/build/libs/*.jar
           if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload build logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Tactical-Spectator-Logs
+          path: |
+            extracted-source/**/build/reports/
+            extracted-source/**/build/test-results/
+          if-no-files-found: ignore
           retention-days: 30
