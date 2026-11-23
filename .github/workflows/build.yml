@@ -1,100 +1,40 @@
-
-name: JR FakePlayer Build
-
-on:
-  push:
-    branches: [main, master]
-  pull_request:
-    branches: [main, master]
-  workflow_dispatch:
-
-permissions:
-  contents: read
-
-jobs:
-  build:
-    name: Build JR FakePlayer Forge 1.20.1
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Java 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.8'
-
-      - name: Debug repository structure
-        shell: bash
-        run: |
-          echo "===== ROOT ====="
-          pwd
-          ls -la
-          echo "===== PROJECT FILES =====
-          "
-          find . -maxdepth 3 -type f \
-            \( -name build.gradle -o -name settings.gradle -o -name mods.toml \) \
-            -print
-
-      - name: Validate project
+      - name: Locate Gradle project
         shell: bash
         run: |
           set -eu
 
-          if [ ! -f build.gradle ]; then
-            echo "::error::build.gradle not found in repository root"
+          PROJECT_DIR=""
+
+          if [ -f "./build.gradle" ]; then
+            PROJECT_DIR="."
+          else
+            PROJECT_DIR="$(find . -mindepth 2 -maxdepth 5 \
+              -type f -name build.gradle \
+              ! -path './.gradle/*' \
+              -print -quit | xargs dirname || true)"
+          fi
+
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "::error::Cannot find build.gradle anywhere in repository"
+            find . -maxdepth 5 -type f
             exit 1
           fi
 
-          if [ ! -f settings.gradle ]; then
-            echo "::error::settings.gradle not found"
-            exit 1
-          fi
-
-          if [ ! -d src/main/java ]; then
-            echo "::error::src/main/java not found"
-            exit 1
-          fi
-
-          echo "Project files validated."
-
-      - name: Print Java and Gradle versions
-        run: |
-          java -version
-          gradle --version
+          echo "Gradle project found: $PROJECT_DIR"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
       - name: Build JR FakePlayer
         shell: bash
         run: |
-          gradle clean build --no-daemon --stacktrace --info
+          set -eu
+          cd "$PROJECT_DIR"
+          gradle clean build --no-daemon --stacktrace
 
-      - name: Show build output
-        if: always()
-        shell: bash
-        run: |
-          echo "===== BUILD OUTPUT ====="
-          if [ -d build/libs ]; then
-            ls -lh build/libs
-          else
-            echo "build/libs does not exist"
-          fi
-
-      - name: Verify mod JAR
+      - name: Verify JAR
         shell: bash
         run: |
           set -eu
-
-          if [ ! -d build/libs ]; then
-            echo "::error::build/libs not found"
-            exit 1
-          fi
+          cd "$PROJECT_DIR"
 
           mkdir -p verified
 
@@ -103,31 +43,13 @@ jobs:
             ! -name '*-javadoc.jar' \
             -exec cp {} verified/ \;
 
-          if [ -z "$(find verified -type f -name '*.jar' -print -quit)" ]; then
-            echo "::error::No mod JAR was generated"
-            exit 1
-          fi
-
-          echo "Verified JAR:"
+          test -n "$(find verified -name '*.jar' -print -quit)"
           ls -lh verified
 
-      - name: Upload JAR Artifact
-        if: success()
+      - name: Upload JR FakePlayer
         uses: actions/upload-artifact@v4
         with:
           name: JR-FakePlayer-Forge-1.20.1
-          path: verified/*.jar
+          path: ${{ env.PROJECT_DIR }}/verified/*.jar
           if-no-files-found: error
-          retention-days: 30
-
-      - name: Upload failure reports
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: JR-FakePlayer-Failure-Logs
-          path: |
-            build/reports/**
-            build/test-results/**
-            build/logs/**
-          if-no-files-found: ignore
           retention-days: 30
