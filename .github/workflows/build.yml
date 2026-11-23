@@ -1,11 +1,10 @@
-
 name: Tactical Spectator R6 Build
 
 on:
   push:
     branches: [main, master]
     paths:
-      - 'TacticalSpectator_R6_source_and_verification.zip'
+      - '**'
       - '.github/workflows/build.yml'
   pull_request:
     branches: [main, master]
@@ -16,7 +15,7 @@ permissions:
 
 jobs:
   build:
-    name: Verify and Build Forge 1.20.1 (R6)
+    name: Verify and Build Forge 1.20.1
     runs-on: ubuntu-latest
 
     steps:
@@ -29,61 +28,86 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Gradle 8.8
+      - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.8'
 
-      - name: Extract R6 archive
+      - name: Locate and extract R6 source
         shell: bash
         run: |
           set -euo pipefail
-          ZIP='TacticalSpectator_R6_source_and_verification.zip'
-          test -f "$ZIP" || {
-            echo "Missing R6 ZIP at repository root"
-            exit 1
-          }
-          mkdir -p r6
-          unzip -q "$ZIP" -d r6
-          test -f r6/build.gradle || {
-            echo 'R6 build.gradle not found'
-            exit 1
-          }
-          test -f r6/verification/run_checks.sh || {
-            echo 'R6 verification scripts missing'
-            exit 1
-          }
 
-      - name: Run R6 logic checks
+          ZIP="TacticalSpectator_R6_source_and_verification.zip"
+
+          if [ -f "$ZIP" ]; then
+            mkdir -p r6
+            unzip -q "$ZIP" -d r6
+            SOURCE_DIR="r6"
+
+          elif [ -f "r6-source/build.gradle" ]; then
+            SOURCE_DIR="r6-source"
+
+          elif [ -f "TacticalSpectator_R6/build.gradle" ]; then
+            SOURCE_DIR="TacticalSpectator_R6"
+
+          else
+            echo "::error::Cannot find R6 source."
+            echo "Expected one of:"
+            echo "1. $ZIP in repository root"
+            echo "2. r6-source/build.gradle"
+            echo "3. TacticalSpectator_R6/build.gradle"
+            exit 1
+          fi
+
+          if [ ! -f "$SOURCE_DIR/build.gradle" ]; then
+            echo "::error::build.gradle missing in $SOURCE_DIR"
+            exit 1
+          fi
+
+          if [ ! -f "$SOURCE_DIR/verification/run_checks.sh" ]; then
+            echo "::error::Verification scripts missing"
+            exit 1
+          fi
+
+          echo "SOURCE_DIR=$SOURCE_DIR" >> "$GITHUB_ENV"
+          echo "Source found at: $SOURCE_DIR"
+
+      - name: Run logic checks
         shell: bash
-        run: bash r6/verification/run_checks.sh r6/src/main/java
+        run: |
+          bash "$SOURCE_DIR/verification/run_checks.sh" \
+            "$SOURCE_DIR/src/main/java"
 
       - name: Run mutation checks
         shell: bash
-        run: bash r6/verification/mutation_check.sh r6/src/main/java
+        run: |
+          bash "$SOURCE_DIR/verification/mutation_check.sh" \
+            "$SOURCE_DIR/src/main/java"
 
       - name: Build Forge mod
-        working-directory: r6
         shell: bash
-        run: gradle build --no-daemon
+        run: |
+          cd "$SOURCE_DIR"
+          gradle build --no-daemon
 
-      - name: Upload built JAR
+      - name: Upload JAR
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: Tactical-Spectator-R6-JAR
-          path: r6/build/libs/*.jar
+          path: ${{ env.SOURCE_DIR }}/build/libs/*.jar
           if-no-files-found: error
           retention-days: 30
 
       - name: Upload reports on failure
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: Tactical-Spectator-R6-build-reports
+          name: Tactical-Spectator-R6-failure-reports
           path: |
-            r6/build/reports/**
-            r6/build/test-results/**
-            r6/build/logs/**
+            **/build/reports/**
+            **/build/test-results/**
+            **/build/logs/**
           if-no-files-found: ignore
           retention-days: 30
