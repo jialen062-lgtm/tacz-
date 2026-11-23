@@ -1,11 +1,12 @@
 
-name: Tactical Spectator Build
+name: Tactical Spectator R5 Build
 
 on:
   push:
-    branches:
-      - main
-      - master
+    branches: [main, master]
+    paths:
+      - 'tactical_spectator_source_r5.zip'
+      - '.github/workflows/build.yml'
   pull_request:
   workflow_dispatch:
 
@@ -14,7 +15,7 @@ permissions:
 
 jobs:
   build:
-    name: Build Tactical Spectator
+    name: Build Forge 1.20.1 Mod (R5)
     runs-on: ubuntu-latest
 
     steps:
@@ -27,73 +28,43 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Setup Gradle 8.8
+      - name: Setup Gradle 8.1.1
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.8'
+          gradle-version: '8.1.1'
 
-      - name: Extract Tactical Spectator source
+      - name: Verify and extract R5 source ZIP
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
 
-          SOURCE_ZIP="TacticalSpectator_no_signal_tablet_stage.zip"
+          SOURCE_ZIP="tactical_spectator_source_r5.zip"
 
           if [ ! -f "$SOURCE_ZIP" ]; then
             echo "ERROR: Source ZIP not found: $SOURCE_ZIP"
+            find . -maxdepth 3 -type f -print
             exit 1
           fi
 
           mkdir -p extracted-source
           unzip -q "$SOURCE_ZIP" -d extracted-source
 
-          echo "===== Source files ====="
-          find extracted-source -maxdepth 4 -type f | head -200
-
-      - name: Locate Gradle project
-        id: locate
-        shell: bash
-        run: |
-          set -e
-
-          BUILD_FILE=$(find extracted-source \
-            -type f \
-            \( -name build.gradle -o -name build.gradle.kts \) \
-            -not -path "*/build/*" \
-            | head -n 1)
-
-          if [ -z "$BUILD_FILE" ]; then
-            echo "ERROR: Gradle build file not found."
-            find extracted-source -type f
+          if [ ! -f extracted-source/build.gradle ]; then
+            echo "ERROR: build.gradle not found"
+            find extracted-source -maxdepth 5 -type f -print
             exit 1
           fi
 
-          PROJECT_DIR=$(dirname "$BUILD_FILE")
+      - name: Build mod
+        working-directory: extracted-source
+        run: gradle build --no-daemon
 
-          echo "Found project: $PROJECT_DIR"
-          echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
-
-      - name: Build Forge Mod with Gradle 8.8
-        shell: bash
-        run: |
-          set -e
-
-          PROJECT_DIR="${{ steps.locate.outputs.project_dir }}"
-
-          echo "Building: $PROJECT_DIR"
-          echo "Gradle version:"
-          gradle --version
-
-          cd "$PROJECT_DIR"
-
-          gradle build --no-daemon
-
-      - name: Upload compiled JAR
+      - name: Upload JAR artifact
         uses: actions/upload-artifact@v4
         if: success()
         with:
-          name: Tactical-Spectator-JAR
-          path: extracted-source/**/build/libs/*.jar
+          name: Tactical-Spectator-R5-JAR
+          path: extracted-source/build/libs/*.jar
           if-no-files-found: error
           retention-days: 30
 
@@ -101,9 +72,9 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: Tactical-Spectator-Reports
+          name: Tactical-Spectator-R5-build-reports
           path: |
-            extracted-source/**/build/reports/
-            extracted-source/**/build/test-results/
+            extracted-source/build/reports/**
+            extracted-source/build/test-results/**
           if-no-files-found: ignore
           retention-days: 30
