@@ -1,11 +1,9 @@
-name: Tactical Spectator R6 Build
+
+name: JR FakePlayer Forge Build
 
 on:
   push:
     branches: [main, master]
-    paths:
-      - '**'
-      - '.github/workflows/build.yml'
   pull_request:
     branches: [main, master]
   workflow_dispatch:
@@ -15,99 +13,55 @@ permissions:
 
 jobs:
   build:
-    name: Verify and Build Forge 1.20.1
+    name: Build JR FakePlayer
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Java 17
+      - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
 
-      - name: Set up Gradle
+      - name: Setup Gradle 8.8
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.8'
 
-      - name: Locate and extract R6 source
+      - name: Check project files
         shell: bash
         run: |
           set -euo pipefail
-
-          ZIP="TacticalSpectator_R6_source_and_verification.zip"
-
-          if [ -f "$ZIP" ]; then
-            mkdir -p r6
-            unzip -q "$ZIP" -d r6
-            SOURCE_DIR="r6"
-
-          elif [ -f "r6-source/build.gradle" ]; then
-            SOURCE_DIR="r6-source"
-
-          elif [ -f "TacticalSpectator_R6/build.gradle" ]; then
-            SOURCE_DIR="TacticalSpectator_R6"
-
-          else
-            echo "::error::Cannot find R6 source."
-            echo "Expected one of:"
-            echo "1. $ZIP in repository root"
-            echo "2. r6-source/build.gradle"
-            echo "3. TacticalSpectator_R6/build.gradle"
-            exit 1
-          fi
-
-          if [ ! -f "$SOURCE_DIR/build.gradle" ]; then
-            echo "::error::build.gradle missing in $SOURCE_DIR"
-            exit 1
-          fi
-
-          if [ ! -f "$SOURCE_DIR/verification/run_checks.sh" ]; then
-            echo "::error::Verification scripts missing"
-            exit 1
-          fi
-
-          echo "SOURCE_DIR=$SOURCE_DIR" >> "$GITHUB_ENV"
-          echo "Source found at: $SOURCE_DIR"
-
-      - name: Run logic checks
-        shell: bash
-        run: |
-          bash "$SOURCE_DIR/verification/run_checks.sh" \
-            "$SOURCE_DIR/src/main/java"
-
-      - name: Run mutation checks
-        shell: bash
-        run: |
-          bash "$SOURCE_DIR/verification/mutation_check.sh" \
-            "$SOURCE_DIR/src/main/java"
+          test -f build.gradle
+          test -f settings.gradle
+          test -d src/main/java
+          echo "Project structure OK"
 
       - name: Build Forge mod
         shell: bash
-        run: |
-          cd "$SOURCE_DIR"
-          gradle build --no-daemon
+        run: gradle build --no-daemon
 
-      - name: Upload JAR
+      - name: Upload JAR artifact
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: Tactical-Spectator-R6-JAR
-          path: ${{ env.SOURCE_DIR }}/build/libs/*.jar
+          name: JR-FakePlayer-Forge-1.20.1
+          path: build/libs/*.jar
           if-no-files-found: error
           retention-days: 30
 
-      - name: Upload reports on failure
+      - name: Upload build reports on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: Tactical-Spectator-R6-failure-reports
+          name: JR-FakePlayer-Build-Reports
           path: |
-            **/build/reports/**
-            **/build/test-results/**
-            **/build/logs/**
+            build/reports/**
+            build/test-results/**
+            build/logs/**
           if-no-files-found: ignore
           retention-days: 30
