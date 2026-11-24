@@ -29,24 +29,13 @@ jobs:
       - name: Check source ZIP
         run: |
           set -euo pipefail
-
-          if [ ! -f "CopyBlock_Forge_1.20.1_source.zip" ]; then
-            echo "ERROR: Source ZIP not found!"
-            exit 1
-          fi
-
-          echo "Source ZIP found."
+          test -f CopyBlock_Forge_1.20.1_source.zip
 
       - name: Extract source ZIP
         run: |
           set -euo pipefail
-
           mkdir -p copyblock-source
-
-          unzip -o CopyBlock_Forge_1.20.1_source.zip \
-            -d copyblock-source
-
-          echo "Source ZIP extracted."
+          unzip -o CopyBlock_Forge_1.20.1_source.zip -d copyblock-source
 
       - name: Locate Gradle project
         id: locate
@@ -54,22 +43,17 @@ jobs:
           set -euo pipefail
 
           BUILD_FILE=$(find copyblock-source \
-            -type f \
-            -name build.gradle \
-            -print \
-            -quit)
+            -type f -name build.gradle -print -quit)
 
           if [ -z "$BUILD_FILE" ]; then
-            echo "ERROR: build.gradle not found!"
-            find copyblock-source -maxdepth 5 -type f
+            echo "ERROR: build.gradle not found"
             exit 1
           fi
 
           PROJECT_DIR=$(dirname "$BUILD_FILE")
-
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
 
-          echo "Gradle project: $PROJECT_DIR"
+          echo "Project directory: $PROJECT_DIR"
 
       - name: Fix CopySessionData
         working-directory: ${{ steps.locate.outputs.project_dir }}
@@ -78,10 +62,7 @@ jobs:
 
           FILE="src/main/java/com/blockforge/copyblock/data/CopySessionData.java"
 
-          if [ ! -f "$FILE" ]; then
-            echo "ERROR: CopySessionData.java not found!"
-            exit 1
-          fi
+          test -f "$FILE"
 
           python3 - <<'PY'
           from pathlib import Path
@@ -91,45 +72,47 @@ jobs:
 
           old = 'NbtUtils.readBlockState(BuiltInRegistries.BLOCK, tag.getCompound("Sample"));'
 
-          new = """NbtUtils.readBlockState(
+          new = '''NbtUtils.readBlockState(
                       BuiltInRegistries.BLOCK.asLookup(),
                       tag.getCompound("Sample")
-                  );"""
+                  );'''
 
           if old in source:
               source = source.replace(old, new)
               path.write_text(source, encoding="utf-8")
-              print("Fixed old readBlockState call.")
+              print("CopySessionData fixed.")
           elif "BuiltInRegistries.BLOCK.asLookup()" in source:
-              print("Fix already present.")
+              print("CopySessionData already fixed.")
           else:
-              raise SystemExit("ERROR: Expected readBlockState call not found.")
+              raise SystemExit("ERROR: Could not find expected readBlockState call.")
           PY
 
-          echo "Checking repaired source:"
           grep -n -A 3 "readBlockState" "$FILE"
 
       - name: Validate project
         working-directory: ${{ steps.locate.outputs.project_dir }}
         run: |
           set -euo pipefail
-
           test -f build.gradle
           test -f settings.gradle
           test -d src/main/java
-
           echo "Project validation passed."
 
-      - name: Set up Gradle
+      - name: Set up Gradle 8.8
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.8'
+
+      - name: Verify Gradle version
+        run: |
+          set -euo pipefail
+          gradle --version
+          gradle --version | grep -q "Gradle 8.8"
 
       - name: Build Forge mod
         working-directory: ${{ steps.locate.outputs.project_dir }}
         run: |
           set -euo pipefail
-
-          gradle --version
-
           gradle clean build --no-daemon
 
       - name: Upload build artifacts
