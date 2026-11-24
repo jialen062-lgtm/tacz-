@@ -1,8 +1,7 @@
 
-name: JR FakePlayer Forge Build
+name: Tactical Spectator R8 Build
 
 on:
-  workflow_dispatch:
   push:
     branches:
       - main
@@ -11,13 +10,14 @@ on:
     branches:
       - main
       - master
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
   build:
-    name: Build JR FakePlayer
+    name: Build Tactical Spectator R8
     runs-on: ubuntu-latest
 
     steps:
@@ -30,117 +30,102 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Setup Gradle
+      - name: Setup Gradle 8.8
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.8'
 
-      - name: Locate JR FakePlayer source
+      - name: Locate and extract R8 source
         shell: bash
         run: |
-          set -eu
+          set -euo pipefail
 
-          echo "===== Repository files ====="
-          find . -maxdepth 3 -type f | head -200
+          ZIP="TacticalSpectator_R8_body_anchor_fix_source.zip"
 
-          mkdir -p workspace
+          if [ -f "$ZIP" ]; then
+            mkdir -p r8-extracted
+            unzip -oq "$ZIP" -d r8-extracted
+            SOURCE_DIR="r8-extracted/r7fix"
 
-          ZIP_FILE="$(find . -maxdepth 2 -type f \
-            -iname '*JR_FakePlayer*.zip' \
-            -print -quit || true)"
+          elif [ -f "r7fix/build.gradle" ]; then
+            SOURCE_DIR="r7fix"
 
-          if [ -n "$ZIP_FILE" ]; then
-            echo "Found source ZIP: $ZIP_FILE"
-            unzip -oq "$ZIP_FILE" -d workspace
-          fi
+          elif [ -f "build.gradle" ]; then
+            SOURCE_DIR="."
 
-          PROJECT_DIR=""
-
-          while IFS= read -r FILE; do
-            DIR="$(dirname "$FILE")"
-
-            if [ -f "$DIR/settings.gradle" ] || \
-               [ -f "$DIR/settings.gradle.kts" ]; then
-
-              if [ -d "$DIR/src/main/java" ]; then
-                PROJECT_DIR="$DIR"
-                break
-              fi
-            fi
-          done < <(
-            find . workspace -type f \
-              \( -name build.gradle -o -name build.gradle.kts \) \
-              2>/dev/null || true
-          )
-
-          if [ -z "$PROJECT_DIR" ]; then
-            echo "::error::JR FakePlayer Gradle project not found"
-            find . -maxdepth 6 -type f
+          else
+            echo "::error::R8 source not found"
+            find . -maxdepth 4 -type f
             exit 1
           fi
 
-          echo "Selected project: $PROJECT_DIR"
+          test -f "$SOURCE_DIR/build.gradle"
+          test -f "$SOURCE_DIR/settings.gradle"
+          test -f "$SOURCE_DIR/src/main/resources/META-INF/mods.toml"
 
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "SOURCE_DIR=$SOURCE_DIR" >> "$GITHUB_ENV"
 
-      - name: Verify project
+          echo "R8 source located: $SOURCE_DIR"
+
+      - name: Verify mod identity
         shell: bash
         run: |
-          set -eu
+          set -euo pipefail
 
-          cd "$PROJECT_DIR"
+          MODS="$SOURCE_DIR/src/main/resources/META-INF/mods.toml"
 
-          echo "===== Project ====="
-          pwd
-          ls -la
+          if ! grep -q 'modId="tactical_spectator"' "$MODS"; then
+            echo "::error::Wrong mod identity"
+            exit 1
+          fi
 
-          test -f build.gradle || test -f build.gradle.kts
-          test -d src/main/java
+          echo "Tactical Spectator identity verified"
 
-          echo "Project structure OK"
+      - name: Show Java and Gradle versions
+        run: |
+          java -version
+          gradle --version
 
-      - name: Build Forge mod
+      - name: Build R8 Forge mod
         shell: bash
         run: |
-          set -eu
+          set -euo pipefail
 
-          cd "$PROJECT_DIR"
+          cd "$SOURCE_DIR"
 
           gradle clean build \
             --no-daemon \
             --stacktrace
 
-      - name: Verify JAR
+      - name: Verify generated JAR
         shell: bash
         run: |
-          set -eu
+          set -euo pipefail
 
-          cd "$PROJECT_DIR"
+          mkdir -p "$SOURCE_DIR/verified"
 
-          mkdir -p verified
-
-          find build/libs \
+          find "$SOURCE_DIR/build/libs" \
             -maxdepth 1 \
             -type f \
             -name '*.jar' \
             ! -name '*-sources.jar' \
             ! -name '*-javadoc.jar' \
-            -exec cp {} verified/ \;
+            -exec cp {} "$SOURCE_DIR/verified/" \;
 
-          if [ -z "$(find verified -name '*.jar' -print -quit)" ]; then
+          if [ -z "$(find "$SOURCE_DIR/verified" -name '*.jar' -print -quit)" ]; then
             echo "::error::No JAR generated"
             exit 1
           fi
 
-          echo "===== Generated JAR ====="
-          ls -lh verified
+          echo "===== R8 JAR ====="
+          ls -lh "$SOURCE_DIR/verified"
 
-      - name: Upload JR FakePlayer JAR
+      - name: Upload Tactical Spectator R8 JAR
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: JR-FakePlayer-Forge-1.20.1
-          path: ${{ env.PROJECT_DIR }}/verified/*.jar
+          name: Tactical-Spectator-R8-Forge-1.20.1
+          path: ${{ env.SOURCE_DIR }}/verified/*.jar
           if-no-files-found: error
           retention-days: 30
 
@@ -148,10 +133,10 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: JR-FakePlayer-Failure-Logs
+          name: Tactical-Spectator-R8-Failure-Reports
           path: |
-            **/build/reports/**
-            **/build/test-results/**
-            **/build/logs/**
+            r8-extracted/**/build/reports/**
+            r8-extracted/**/build/test-results/**
+            r8-extracted/**/build/logs/**
           if-no-files-found: ignore
           retention-days: 30
