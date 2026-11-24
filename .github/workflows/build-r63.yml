@@ -25,8 +25,10 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Gradle
+      - name: Set up Gradle 8.8
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.8'
 
       - name: Extract R63 source
         shell: bash
@@ -39,7 +41,7 @@ jobs:
             mkdir -p extracted-source
             unzip -oq "$ZIP_FILE" -d extracted-source
           else
-            echo "::notice::R63 ZIP not found at repository root. Searching existing files."
+            echo "::notice::R63 ZIP not found. Searching existing files."
           fi
 
       - name: Locate Gradle project
@@ -55,7 +57,6 @@ jobs:
 
           if [ -z "$BUILD_FILE" ]; then
             echo "::error::Gradle project not found."
-            echo "Check that the R63 source ZIP is in the repository root."
             exit 1
           fi
 
@@ -68,14 +69,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
           cd "$PROJECT_DIR"
 
-          if [ -f gradlew ]; then
-            chmod +x gradlew
-            ./gradlew --no-daemon clean build
-          else
-            gradle --no-daemon clean build
-          fi
+          gradle --version
+          gradle --no-daemon clean build
 
       - name: Collect JAR files
         shell: bash
