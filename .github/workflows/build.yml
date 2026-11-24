@@ -61,7 +61,7 @@ jobs:
 
           if [ -z "$BUILD_FILE" ]; then
             echo "ERROR: build.gradle not found!"
-            find copyblock-source -maxdepth 4 -type f
+            find copyblock-source -maxdepth 5 -type f
             exit 1
           fi
 
@@ -89,7 +89,7 @@ jobs:
           path = Path("src/main/java/com/blockforge/copyblock/data/CopySessionData.java")
           source = path.read_text(encoding="utf-8")
 
-          old = "NbtUtils.readBlockState(BuiltInRegistries.BLOCK, tag.getCompound(\"Sample\"));"
+          old = 'NbtUtils.readBlockState(BuiltInRegistries.BLOCK, tag.getCompound("Sample"));'
 
           new = """NbtUtils.readBlockState(
                       BuiltInRegistries.BLOCK.asLookup(),
@@ -103,13 +103,13 @@ jobs:
           elif "BuiltInRegistries.BLOCK.asLookup()" in source:
               print("Fix already present.")
           else:
-              raise SystemExit("ERROR: Could not find expected readBlockState call.")
+              raise SystemExit("ERROR: Expected readBlockState call not found.")
           PY
 
-          echo "Verifying fix:"
+          echo "Checking repaired source:"
           grep -n -A 3 "readBlockState" "$FILE"
 
-      - name: Validate project files
+      - name: Validate project
         working-directory: ${{ steps.locate.outputs.project_dir }}
         run: |
           set -euo pipefail
@@ -120,21 +120,23 @@ jobs:
 
           echo "Project validation passed."
 
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
       - name: Build Forge mod
         working-directory: ${{ steps.locate.outputs.project_dir }}
         run: |
           set -euo pipefail
 
-          chmod +x gradlew
+          gradle --version
 
-          ./gradlew clean build --no-daemon
+          gradle clean build --no-daemon
 
       - name: Upload build artifacts
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: CopyBlock-Forge-1.20.1
-          path: |
-            ${{ steps.locate.outputs.project_dir }}/build/libs/*.jar
+          path: ${{ steps.locate.outputs.project_dir }}/build/libs/*.jar
           if-no-files-found: error
           retention-days: 14
