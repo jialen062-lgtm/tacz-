@@ -1,108 +1,122 @@
 
-name: Build Minecraft Forge Mod
+name: Build CopyBlock Forge 1.20.1
 
 on:
+  workflow_dispatch:
   push:
     branches: [main, master]
   pull_request:
     branches: [main, master]
-  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
   build:
-    name: Build Forge Project
+    name: Extract and Build CopyBlock
     runs-on: ubuntu-latest
 
     steps:
+      # 1. 下载仓库
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      # 2. 安装 Java 17
       - name: Setup Java 17
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
+      # 3. 安装 Gradle
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.8'
 
-      # 自动寻找真正的 Gradle 工程
-      - name: Locate Gradle Project
+      # 4. 检查并解压指定 ZIP
+      - name: Extract CopyBlock Source
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "Repository files:"
-          find . -maxdepth 4 -type f | head -200
+          ZIP_FILE="CopyBlock_Forge_1.20.1_source.zip"
 
-          BUILD_FILE=$(find . \
+          if [ ! -f "$ZIP_FILE" ]; then
+            echo "ERROR: $ZIP_FILE not found!"
+            exit 1
+          fi
+
+          mkdir -p copyblock-source
+
+          unzip -o "$ZIP_FILE" -d copyblock-source
+
+          echo "ZIP extracted successfully."
+
+          echo "Extracted files:"
+          find copyblock-source -maxdepth 4 -type f | head -100
+
+      # 5. 自动定位 Forge 工程
+      - name: Locate Forge Project
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BUILD_FILE=$(find copyblock-source \
             -type f \
             \( -name build.gradle -o -name build.gradle.kts \) \
-            -not -path '*/.gradle/*' \
             -not -path '*/build/*' \
             -print -quit)
 
           if [ -z "$BUILD_FILE" ]; then
-            echo "ERROR: Gradle build file not found."
-            echo "Please check whether the source project exists."
+            echo "ERROR: build.gradle not found in ZIP!"
             exit 1
           fi
 
           PROJECT_DIR=$(dirname "$BUILD_FILE")
 
-          echo "Found project: $PROJECT_DIR"
-          echo "BUILD_FILE=$BUILD_FILE" >> "$GITHUB_ENV"
+          echo "Found: $PROJECT_DIR"
+
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-      # 检查工程结构
-      - name: Verify Project
+      # 6. 验证工程
+      - name: Verify Forge Project
         shell: bash
         run: |
           set -euo pipefail
 
           cd "$PROJECT_DIR"
 
-          echo "Project directory: $(pwd)"
+          test -f build.gradle
+          test -f settings.gradle
+          test -f src/main/java/com/blockforge/copyblock/CopyBlockMod.java
+          test -f src/main/resources/META-INF/mods.toml
 
-          if [ ! -f settings.gradle ] && \
-             [ ! -f settings.gradle.kts ]; then
-            echo "WARNING: settings.gradle not found."
-          fi
+          grep -q '1.20.1-47.4.10' build.gradle
+          grep -q 'modId="copyblock"' \
+            src/main/resources/META-INF/mods.toml
 
-          if [ ! -d src/main ]; then
-            echo "WARNING: src/main directory not found."
-            echo "Project may use a different source layout."
-          fi
+          echo "CopyBlock project verified."
 
-          if [ ! -d src/main/java ]; then
-            echo "WARNING: src/main/java not found."
-          fi
-
-          echo "Project inspection completed."
-
-      # 检查 Java
-      - name: Check Java
+      # 7. 检查 Java
+      - name: Check Environment
         run: |
           java -version
           gradle --version
 
-      # 执行编译
-      - name: Build Forge Mod
+      # 8. 正式编译
+      - name: Build Mod
         shell: bash
         run: |
           set -euo pipefail
+
           cd "$PROJECT_DIR"
 
           gradle clean build \
             --no-daemon \
             --stacktrace
 
-      # 检查编译产物
+      # 9. 检查 JAR
       - name: Verify JAR
         shell: bash
         run: |
@@ -110,40 +124,47 @@ jobs:
 
           JAR_DIR="$PROJECT_DIR/build/libs"
 
-          if [ ! -d "$JAR_DIR" ]; then
-            echo "ERROR: build/libs not found."
-            exit 1
-          fi
+          mkdir -p verified
 
-          echo "Generated JAR files:"
-          find "$JAR_DIR" -maxdepth 1 -name '*.jar' -print
-
-          if ! find "$JAR_DIR" -maxdepth 1 \
-            -type f -name '*.jar' \
+          JAR=$(find "$JAR_DIR" \
+            -maxdepth 1 \
+            -type f \
+            -name '*.jar' \
             ! -name '*-sources.jar' \
-            ! -name '*-javadoc.jar' | grep -q .; then
-            echo "ERROR: No usable JAR generated."
+            ! -name '*-javadoc.jar' \
+            -print -quit)
+
+          if [ -z "$JAR" ]; then
+            echo "ERROR: JAR not generated!"
             exit 1
           fi
 
-      # 上传模组
-      - name: Upload Mod JAR
+          echo "Checking $JAR"
+
+          jar tf "$JAR" > verified/jar_contents.txt
+
+          grep -q 'CopyBlockMod.class' \
+            verified/jar_contents.txt
+
+          echo "JAR verification passed."
+
+      # 10. 上传编译好的模组
+      - name: Upload CopyBlock JAR
         uses: actions/upload-artifact@v4
         with:
-          name: Minecraft-Forge-Mod
-          path: |
-            ${{ env.PROJECT_DIR }}/build/libs/*.jar
+          name: CopyBlock-Forge-1.20.1
+          path: ${{ env.PROJECT_DIR }}/build/libs/*.jar
           if-no-files-found: error
           retention-days: 30
 
-      # 上传错误报告
+      # 11. 上传编译报告
       - name: Upload Build Reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Forge-Build-Reports
+          name: CopyBlock-Build-Reports
           path: |
-            **/build/reports/**
-            **/build/test-results/**
+            copyblock-source/**/build/reports/**
+            copyblock-source/**/build/test-results/**
           if-no-files-found: ignore
           retention-days: 30
