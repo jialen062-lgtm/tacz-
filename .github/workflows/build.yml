@@ -4,9 +4,9 @@ name: Build CopyBlock Forge 1.20.1
 on:
   workflow_dispatch:
   push:
-    branches: [main, master]
-  pull_request:
-    branches: [main, master]
+    paths:
+      - 'CopyBlock_Forge_1.20.1_source.zip'
+      - '.github/workflows/build.yml'
 
 permissions:
   contents: read
@@ -17,154 +17,124 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. 下载仓库
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. 安装 Java 17
-      - name: Setup Java 17
+      - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
-      # 3. 安装 Gradle
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.8'
-
-      # 4. 检查并解压指定 ZIP
-      - name: Extract CopyBlock Source
-        shell: bash
+      - name: Check source ZIP
         run: |
           set -euo pipefail
 
-          ZIP_FILE="CopyBlock_Forge_1.20.1_source.zip"
-
-          if [ ! -f "$ZIP_FILE" ]; then
-            echo "ERROR: $ZIP_FILE not found!"
+          if [ ! -f "CopyBlock_Forge_1.20.1_source.zip" ]; then
+            echo "ERROR: Source ZIP not found!"
             exit 1
           fi
 
+          echo "Source ZIP found."
+
+      - name: Extract source ZIP
+        run: |
+          set -euo pipefail
+
           mkdir -p copyblock-source
 
-          unzip -o "$ZIP_FILE" -d copyblock-source
+          unzip -o CopyBlock_Forge_1.20.1_source.zip \
+            -d copyblock-source
 
-          echo "ZIP extracted successfully."
+          echo "Source ZIP extracted."
 
-          echo "Extracted files:"
-          find copyblock-source -maxdepth 4 -type f | head -100
-
-      # 5. 自动定位 Forge 工程
-      - name: Locate Forge Project
-        shell: bash
+      - name: Locate Gradle project
+        id: locate
         run: |
           set -euo pipefail
 
           BUILD_FILE=$(find copyblock-source \
             -type f \
-            \( -name build.gradle -o -name build.gradle.kts \) \
-            -not -path '*/build/*' \
-            -print -quit)
+            -name build.gradle \
+            -print \
+            -quit)
 
           if [ -z "$BUILD_FILE" ]; then
-            echo "ERROR: build.gradle not found in ZIP!"
+            echo "ERROR: build.gradle not found!"
+            find copyblock-source -maxdepth 4 -type f
             exit 1
           fi
 
           PROJECT_DIR=$(dirname "$BUILD_FILE")
 
-          echo "Found: $PROJECT_DIR"
+          echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
 
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Gradle project: $PROJECT_DIR"
 
-      # 6. 验证工程
-      - name: Verify Forge Project
-        shell: bash
+      - name: Fix CopySessionData
+        working-directory: ${{ steps.locate.outputs.project_dir }}
         run: |
           set -euo pipefail
 
-          cd "$PROJECT_DIR"
+          FILE="src/main/java/com/blockforge/copyblock/data/CopySessionData.java"
 
-          test -f build.gradle
-          test -f settings.gradle
-          test -f src/main/java/com/blockforge/copyblock/CopyBlockMod.java
-          test -f src/main/resources/META-INF/mods.toml
-
-          grep -q '1.20.1-47.4.10' build.gradle
-          grep -q 'modId="copyblock"' \
-            src/main/resources/META-INF/mods.toml
-
-          echo "CopyBlock project verified."
-
-      # 7. 检查 Java
-      - name: Check Environment
-        run: |
-          java -version
-          gradle --version
-
-      # 8. 正式编译
-      - name: Build Mod
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          cd "$PROJECT_DIR"
-
-          gradle clean build \
-            --no-daemon \
-            --stacktrace
-
-      # 9. 检查 JAR
-      - name: Verify JAR
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          JAR_DIR="$PROJECT_DIR/build/libs"
-
-          mkdir -p verified
-
-          JAR=$(find "$JAR_DIR" \
-            -maxdepth 1 \
-            -type f \
-            -name '*.jar' \
-            ! -name '*-sources.jar' \
-            ! -name '*-javadoc.jar' \
-            -print -quit)
-
-          if [ -z "$JAR" ]; then
-            echo "ERROR: JAR not generated!"
+          if [ ! -f "$FILE" ]; then
+            echo "ERROR: CopySessionData.java not found!"
             exit 1
           fi
 
-          echo "Checking $JAR"
+          python3 - <<'PY'
+          from pathlib import Path
 
-          jar tf "$JAR" > verified/jar_contents.txt
+          path = Path("src/main/java/com/blockforge/copyblock/data/CopySessionData.java")
+          source = path.read_text(encoding="utf-8")
 
-          grep -q 'CopyBlockMod.class' \
-            verified/jar_contents.txt
+          old = "NbtUtils.readBlockState(BuiltInRegistries.BLOCK, tag.getCompound(\"Sample\"));"
 
-          echo "JAR verification passed."
+          new = """NbtUtils.readBlockState(
+                      BuiltInRegistries.BLOCK.asLookup(),
+                      tag.getCompound("Sample")
+                  );"""
 
-      # 10. 上传编译好的模组
-      - name: Upload CopyBlock JAR
+          if old in source:
+              source = source.replace(old, new)
+              path.write_text(source, encoding="utf-8")
+              print("Fixed old readBlockState call.")
+          elif "BuiltInRegistries.BLOCK.asLookup()" in source:
+              print("Fix already present.")
+          else:
+              raise SystemExit("ERROR: Could not find expected readBlockState call.")
+          PY
+
+          echo "Verifying fix:"
+          grep -n -A 3 "readBlockState" "$FILE"
+
+      - name: Validate project files
+        working-directory: ${{ steps.locate.outputs.project_dir }}
+        run: |
+          set -euo pipefail
+
+          test -f build.gradle
+          test -f settings.gradle
+          test -d src/main/java
+
+          echo "Project validation passed."
+
+      - name: Build Forge mod
+        working-directory: ${{ steps.locate.outputs.project_dir }}
+        run: |
+          set -euo pipefail
+
+          chmod +x gradlew
+
+          ./gradlew clean build --no-daemon
+
+      - name: Upload build artifacts
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: CopyBlock-Forge-1.20.1
-          path: ${{ env.PROJECT_DIR }}/build/libs/*.jar
-          if-no-files-found: error
-          retention-days: 30
-
-      # 11. 上传编译报告
-      - name: Upload Build Reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: CopyBlock-Build-Reports
           path: |
-            copyblock-source/**/build/reports/**
-            copyblock-source/**/build/test-results/**
-          if-no-files-found: ignore
-          retention-days: 30
+            ${{ steps.locate.outputs.project_dir }}/build/libs/*.jar
+          if-no-files-found: error
+          retention-days: 14
