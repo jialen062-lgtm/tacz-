@@ -2,15 +2,11 @@
 name: Tactical Spectator R8 Build
 
 on:
-  push:
-    branches:
-      - main
-      - master
-  pull_request:
-    branches:
-      - main
-      - master
   workflow_dispatch:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
 
 permissions:
   contents: read
@@ -35,69 +31,75 @@ jobs:
         with:
           gradle-version: '8.8'
 
-      - name: Locate and extract R8 source
+      - name: Extract R8 source
         shell: bash
         run: |
           set -euo pipefail
 
           ZIP="TacticalSpectator_R8_body_anchor_fix_source.zip"
 
-          if [ -f "$ZIP" ]; then
-            mkdir -p r8-extracted
-            unzip -oq "$ZIP" -d r8-extracted
-            SOURCE_DIR="r8-extracted/r7fix"
-
-          elif [ -f "r7fix/build.gradle" ]; then
-            SOURCE_DIR="r7fix"
-
-          elif [ -f "build.gradle" ]; then
-            SOURCE_DIR="."
-
-          else
-            echo "::error::R8 source not found"
-            find . -maxdepth 4 -type f
+          if [ ! -f "$ZIP" ]; then
+            echo "::error::R8 ZIP not found: $ZIP"
+            ls -lah
             exit 1
           fi
 
-          test -f "$SOURCE_DIR/build.gradle"
-          test -f "$SOURCE_DIR/settings.gradle"
-          test -f "$SOURCE_DIR/src/main/resources/META-INF/mods.toml"
+          mkdir -p r8-extracted
+          unzip -oq "$ZIP" -d r8-extracted
+
+          SOURCE_DIR="r8-extracted/r7fix"
+
+          if [ ! -f "$SOURCE_DIR/build.gradle" ]; then
+            echo "::error::R8 build.gradle missing"
+            find r8-extracted -maxdepth 4 -type f
+            exit 1
+          fi
+
+          if [ ! -f "$SOURCE_DIR/settings.gradle" ]; then
+            echo "::error::settings.gradle missing"
+            exit 1
+          fi
+
+          if [ ! -f "$SOURCE_DIR/src/main/resources/META-INF/mods.toml" ]; then
+            echo "::error::mods.toml missing"
+            exit 1
+          fi
 
           echo "SOURCE_DIR=$SOURCE_DIR" >> "$GITHUB_ENV"
-
-          echo "R8 source located: $SOURCE_DIR"
+          echo "R8 source extracted successfully"
 
       - name: Verify mod identity
         shell: bash
         run: |
           set -euo pipefail
 
-          MODS="$SOURCE_DIR/src/main/resources/META-INF/mods.toml"
+          cd "$SOURCE_DIR"
 
-          if ! grep -q 'modId="tactical_spectator"' "$MODS"; then
-            echo "::error::Wrong mod identity"
+          if ! grep -q "mod_id: 'tactical_spectator'" build.gradle; then
+            echo "::error::Unexpected mod ID in build.gradle"
             exit 1
           fi
 
-          echo "Tactical Spectator identity verified"
+          if ! grep -q '\${mod_id}' src/main/resources/META-INF/mods.toml; then
+            echo "::error::Unexpected mods.toml template"
+            exit 1
+          fi
 
-      - name: Show Java and Gradle versions
+          echo "Mod identity template verified"
+
+      - name: Setup build environment
         run: |
           java -version
           gradle --version
 
-      - name: Build R8 Forge mod
+      - name: Build Forge mod
         shell: bash
         run: |
           set -euo pipefail
-
           cd "$SOURCE_DIR"
+          gradle clean build --no-daemon --stacktrace
 
-          gradle clean build \
-            --no-daemon \
-            --stacktrace
-
-      - name: Verify generated JAR
+      - name: Verify JAR
         shell: bash
         run: |
           set -euo pipefail
@@ -117,10 +119,9 @@ jobs:
             exit 1
           fi
 
-          echo "===== R8 JAR ====="
           ls -lh "$SOURCE_DIR/verified"
 
-      - name: Upload Tactical Spectator R8 JAR
+      - name: Upload R8 JAR
         if: success()
         uses: actions/upload-artifact@v4
         with:
