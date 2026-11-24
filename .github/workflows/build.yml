@@ -1,23 +1,23 @@
 
-name: Tactical Spectator R8 Build
+name: Build CopyBlock Forge 1.20.1
 
 on:
-  workflow_dispatch:
   push:
     branches: [main, master]
   pull_request:
     branches: [main, master]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
   build:
-    name: Build Tactical Spectator R8
+    name: Build Forge Mod
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Setup Java 17
@@ -25,127 +25,57 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
 
       - name: Setup Gradle 8.8
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.8'
 
-      - name: Extract R8 source
+      - name: Verify Project Structure
         shell: bash
         run: |
           set -euo pipefail
-
-          ZIP="TacticalSpectator_R8_body_anchor_fix_source.zip"
-
-          if [ ! -f "$ZIP" ]; then
-            echo "::error::R8 source ZIP not found"
-            ls -lah
-            exit 1
-          fi
-
-          mkdir -p r8-extracted
-          unzip -oq "$ZIP" -d r8-extracted
-
-          echo "===== Extracted files ====="
-          find r8-extracted -maxdepth 3 -type f
-
-      - name: Locate R8 Gradle project
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          SOURCE_DIR=""
-
-          if [ -f "r8-extracted/build.gradle" ] && \
-             [ -f "r8-extracted/settings.gradle" ]; then
-            SOURCE_DIR="r8-extracted"
-          else
-            while IFS= read -r FILE; do
-              DIR="$(dirname "$FILE")"
-
-              if [ -f "$DIR/settings.gradle" ] && \
-                 [ -d "$DIR/src/main/java" ]; then
-                SOURCE_DIR="$DIR"
-                break
-              fi
-            done < <(find r8-extracted -name build.gradle -type f)
-          fi
-
-          if [ -z "$SOURCE_DIR" ]; then
-            echo "::error::Cannot locate R8 Gradle project"
-            find r8-extracted -maxdepth 5 -type f
-            exit 1
-          fi
-
-          echo "SOURCE_DIR=$SOURCE_DIR" >> "$GITHUB_ENV"
-
-          echo "Selected source: $SOURCE_DIR"
-
-      - name: Verify source files
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          cd "$SOURCE_DIR"
-
           test -f build.gradle
           test -f settings.gradle
-          test -d src/main/java
           test -f src/main/resources/META-INF/mods.toml
+          test -d src/main/java
+          grep -q '1.20.1-47.4.10' build.gradle
+          grep -q 'modId="copyblock"' src/main/resources/META-INF/mods.toml
+          echo "CopyBlock project verification passed."
 
-          echo "R8 project structure verified"
+      - name: Build Forge Mod
+        run: gradle clean build --no-daemon --stacktrace
 
-      - name: Build Forge mod
+      - name: Verify JAR
         shell: bash
         run: |
           set -euo pipefail
-
-          cd "$SOURCE_DIR"
-
-          gradle clean build \
-            --no-daemon \
-            --stacktrace
-
-      - name: Verify generated JAR
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          mkdir -p "$SOURCE_DIR/verified"
-
-          find "$SOURCE_DIR/build/libs" \
-            -maxdepth 1 \
-            -type f \
+          JAR=$(find build/libs -maxdepth 1 -type f \
             -name '*.jar' \
             ! -name '*-sources.jar' \
             ! -name '*-javadoc.jar' \
-            -exec cp {} "$SOURCE_DIR/verified/" \;
+            | head -n 1)
 
-          if [ -z "$(find "$SOURCE_DIR/verified" -name '*.jar' -print -quit)" ]; then
-            echo "::error::No JAR generated"
-            exit 1
-          fi
+          test -n "$JAR"
+          echo "Build output: $JAR"
+          jar tf "$JAR" | grep -q 'CopyBlockMod.class'
 
-          ls -lh "$SOURCE_DIR/verified"
-
-      - name: Upload R8 JAR
-        if: success()
+      - name: Upload CopyBlock JAR
         uses: actions/upload-artifact@v4
         with:
-          name: Tactical-Spectator-R8-Forge-1.20.1
-          path: ${{ env.SOURCE_DIR }}/verified/*.jar
+          name: CopyBlock-Forge-1.20.1
+          path: build/libs/*.jar
           if-no-files-found: error
           retention-days: 30
 
-      - name: Upload failure reports
-        if: failure()
+      - name: Upload Build Reports
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Tactical-Spectator-R8-Failure-Reports
+          name: CopyBlock-Build-Reports
           path: |
-            r8-extracted/**/build/reports/**
-            r8-extracted/**/build/test-results/**
-            r8-extracted/**/build/logs/**
+            build/reports/**
+            build/test-results/**
           if-no-files-found: ignore
           retention-days: 30
