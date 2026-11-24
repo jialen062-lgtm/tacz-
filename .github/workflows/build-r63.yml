@@ -1,105 +1,114 @@
 
-name: Build TACZYIGF R63 - TaCZ Native Refit
-
-on:
-  workflow_dispatch:
-  push:
-    branches:
-      - main
-      - master
-
-permissions:
-  contents: read
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Java 17
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Set up Gradle 8.8
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.8'
-
-      - name: Extract R63 source
+      - name: Auto Fix R63 Mixin Access
         shell: bash
         run: |
           set -euo pipefail
 
-          ZIP_FILE="TACZYIGF-R63-native-tacz-refit-source-and-workflow.zip"
+          python3 <<'PY'
+          import json
+          import re
+          from pathlib import Path
 
-          if [ -f "$ZIP_FILE" ]; then
-            mkdir -p extracted-source
-            unzip -oq "$ZIP_FILE" -d extracted-source
-          else
-            echo "::notice::R63 ZIP not found. Searching existing files."
-          fi
+          root = Path("extracted-source")
 
-      - name: Locate Gradle project
-        shell: bash
-        run: |
-          set -euo pipefail
+          files = list(root.rglob("GunRefitScreenAttachmentsMixin.java"))
 
-          BUILD_FILE="$(find . \
-            -type f \
-            \( -name build.gradle -o -name build.gradle.kts \) \
-            -not -path './.git/*' \
-            | head -n 1)"
+          if len(files) != 1:
+              raise SystemExit(
+                  f"Expected one target Java file, found {len(files)}"
+              )
 
-          if [ -z "$BUILD_FILE" ]; then
-            echo "::error::Gradle project not found."
-            exit 1
-          fi
+          source_file = files[0]
+          source = source_file.read_text(encoding="utf-8")
 
-          PROJECT_DIR="$(dirname "$BUILD_FILE")"
+          old = "screen.addRenderableWidget("
+          count = source.count(old)
 
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Found project: $PROJECT_DIR"
+          if count != 5:
+              raise SystemExit(
+                  f"Expected 5 calls, found {count}. Stop to avoid wrong patch."
+              )
 
-      - name: Build R63
-        shell: bash
-        run: |
-          set -euo pipefail
+          match = re.search(
+              r"(?m)^package\s+([\w.]+)\s*;",
+              source
+          )
 
-          cd "$PROJECT_DIR"
+          if not match:
+              raise SystemExit("Cannot detect Java package")
 
-          gradle --version
-          gradle --no-daemon clean build
+          package = match.group(1)
 
-      - name: Collect JAR files
-        shell: bash
-        run: |
-          set -euo pipefail
+          invoker = f"""
+          package {package};
 
-          mkdir -p release
+          import net.minecraft.client.gui.components.Renderable;
+          import net.minecraft.client.gui.components.events.GuiEventListener;
+          import net.minecraft.client.gui.narration.NarratableEntry;
+          import net.minecraft.client.gui.screens.Screen;
 
-          find "$PROJECT_DIR" \
-            -type f \
-            -path '*/build/libs/*.jar' \
-            ! -name '*-sources.jar' \
-            ! -name '*-javadoc.jar' \
-            -exec cp {} release/ \;
+          import org.spongepowered.asm.mixin.Mixin;
+          import org.spongepowered.asm.mixin.gen.Invoker;
 
-          if [ -z "$(find release -name '*.jar' -print -quit)" ]; then
-            echo "::error::No JAR files generated."
-            exit 1
-          fi
+          @Mixin(Screen.class)
+          public interface ScreenAddRenderableWidgetInvoker {{
 
-          ls -lh release/
+              @Invoker("addRenderableWidget")
+              <T extends GuiEventListener & Renderable & NarratableEntry>
+              T taczcnpc$invokeAddRenderableWidget(T widget);
+          }}
+          """
 
-      - name: Upload R63 artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: TACZYIGF-R63-TaCZ-Native-Refit
-          path: release/*.jar
-          if-no-files-found: error
-          retention-days: 14
+          invoker_file = (
+              source_file.parent /
+              "ScreenAddRenderableWidgetInvoker.java"
+          )
+
+          invoker_file.write_text(invoker, encoding="utf-8")
+
+          replacement = (
+              "((ScreenAddRenderableWidgetInvoker) (Object) screen)"
+              ".taczcnpc$invokeAddRenderableWidget("
+          )
+
+          source = source.replace(old, replacement)
+          source_file.write_text(source, encoding="utf-8")
+
+          configs = []
+
+          for path in root.rglob("*.json"):
+              if "mixin" not in path.name.lower():
+                  continue
+
+              try:
+                  data = json.loads(
+                      path.read_text(encoding="utf-8-sig")
+                  )
+              except Exception:
+                  continue
+
+              if isinstance(data, dict):
+                  if data.get("package") == package:
+                      configs.append((path, data))
+
+          if len(configs) != 1:
+              raise SystemExit(
+                  f"Expected one matching Mixin config, found {len(configs)}"
+              )
+
+          config_path, config = configs[0]
+
+          client = config.setdefault("client", [])
+
+          if "ScreenAddRenderableWidgetInvoker" not in client:
+              client.append("ScreenAddRenderableWidgetInvoker")
+
+          config_path.write_text(
+              json.dumps(data if False else config,
+                         ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8"
+          )
+
+          print("Successfully patched 5 widget calls")
+          print("Invoker registered:", config_path)
+          PY
