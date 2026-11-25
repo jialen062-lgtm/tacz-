@@ -21,23 +21,6 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      # 前置模组 jar：优先使用仓库里已提交的 libs/customnpcs-unofficial-1.20.1.jar；
-      # 没有的话，可在仓库 Settings -> Variables 里设置 CNPC_JAR_URL（直链）自动下载
-      - name: Prepare CNPC jar
-        env:
-          CNPC_JAR_URL: ${{ vars.CNPC_JAR_URL }}
-        run: |
-          mkdir -p libs
-          if [ ! -f libs/customnpcs-unofficial-1.20.1.jar ]; then
-            if [ -n "$CNPC_JAR_URL" ]; then
-              curl -fL "$CNPC_JAR_URL" -o libs/customnpcs-unofficial-1.20.1.jar
-            else
-              echo "::error::缺少 libs/customnpcs-unofficial-1.20.1.jar，请提交该文件或设置 CNPC_JAR_URL 变量"
-              exit 1
-            fi
-          fi
-          ls -l libs
-
       # 仓库没有 gradle wrapper 时用 setup-gradle 提供 Gradle；有 wrapper 可改成 ./gradlew build
       - uses: gradle/actions/setup-gradle@v4
         with:
