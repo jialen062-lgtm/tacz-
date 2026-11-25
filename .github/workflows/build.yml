@@ -21,7 +21,6 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      # 仓库没有 gradle wrapper 时用 setup-gradle 提供 Gradle；有 wrapper 可改成 ./gradlew build
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.8
